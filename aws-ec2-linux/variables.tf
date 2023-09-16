@@ -1,6 +1,3 @@
-variable "server" {
-  description = "Value of the Name tag for the EC2 instance"
-}
 variable "default_region" {
   description = "Default Region"
 }
@@ -15,9 +12,6 @@ variable "ami_image_type" {
 }
 variable "userdata" {
   description = "User Data"
-}
-variable "backup" {
-  description = "True or False"
 }
 variable "security_group" {
   description = "Value of the Security Group Name"
@@ -38,7 +32,4 @@ variable "key_name" {
 }
 variable "root_volume_size" {
   description = "Root Volume Size"
-}
-variable "add_volume_size" {
-  description = "Additional Volume Size"
 }
