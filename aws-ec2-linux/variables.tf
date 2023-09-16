@@ -15,6 +15,7 @@ variable "userdata" {
 }
 variable "security_group" {
   description = "Value of the Security Group Name"
+  type        = list(string)
 }
 variable "kms_key_id" {
   description = "Value of KMS Key to encrypt volumes"
