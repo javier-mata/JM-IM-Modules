@@ -3,7 +3,7 @@ resource "aws_instance" "EC2_Instance" {
   instance_type          = var.instance_type
   subnet_id              = var.subnet
   iam_instance_profile   = var.instance_role
-  vpc_security_group_ids = ["${var.security_group}"]
+  vpc_security_group_ids = var.security_group
   key_name               = var.key_name
   user_data              = var.userdata
   # root disk
