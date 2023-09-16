@@ -15,3 +15,6 @@ variable "sg_rules" {
   }))
   default = {}
 }
+variable "sg_id" {
+  description = "SG ID"
+}

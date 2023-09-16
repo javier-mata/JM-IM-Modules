@@ -11,5 +11,5 @@ resource "aws_security_group_rule" "rules" {
   source_security_group_id = each.value.source_security_group_id
   self                     = each.value.self
   prefix_list_ids          = each.value.prefix_list_ids
-  security_group_id        = aws_security_group.sg.id
+  security_group_id        = var.sg_id
 }
