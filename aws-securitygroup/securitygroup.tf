@@ -1,16 +1,3 @@
-# Security group
-resource "aws_security_group" "sg" {
-  name        = var.name
-  description = var.description
-  vpc_id      = var.vpc_id
-
-  lifecycle {
-    # if changing 'name_prefix' properties.
-    create_before_destroy = true
-  }
-
-  tags = merge({ "Name" = var.name }, var.tags)
-}
 
 # Security group rules
 resource "aws_security_group_rule" "rules" {
