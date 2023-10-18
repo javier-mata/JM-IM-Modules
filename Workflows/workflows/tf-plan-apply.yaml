@@ -1,0 +1,160 @@
+name: "Terraform Plan and Apply"
+
+permissions:
+  id-token: write # required to use OIDC authentication
+  contents: read # required to check out the code from the repo
+  pull-requests: write # allow GH Action to write in the PR
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  terraform:
+    defaults:
+      run:
+        shell: bash
+        working-directory: terraform
+        
+    name: "Terraform Plan and Apply"
+    runs-on: ubuntu-latest
+    steps:
+
+      - name: Get cross-repo app token
+        id: app
+        uses: Flutter-Tech/github-app-token@v2
+        with:
+          APP_PEM: ${{ secrets.CROSS_REPO_CONTENTS_ACCESS_PEM }}
+          APP_ID: 211263
+          APP_INSTALLATION_ID: 26559618
+
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Configure Git 
+        run: |
+          echo "machine github.com login username password ${GH_TOKEN}" > ~/.netrc
+          git config --global url."https://github.com/".insteadOf "git://github.com/"
+          git config --global advice.detachedHead false
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.app_token }}
+
+
+      - name: Terraform Install
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_wrapper: false
+          cli_config_credentials_token: ${{ steps.app.outputs.app_token }}
+
+      - name: Configure AWS
+        id: configure_aws
+        uses: aws-actions/configure-aws-credentials@v2
+
+        with:
+          aws-region: eu-west-1
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          role-duration-seconds: 3600
+          role-session-name: GithubSession
+
+      - name: Terraform Format
+        id: fmt
+        continue-on-error: true
+        run: terraform fmt -check -recursive -diff
+
+      - name: Terraform Init
+        id: init
+        run: terraform init 
+
+      - name: Terraform Validate
+        id: validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        id: plan
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        run: terraform plan -no-color ${VARFILE_ARG} -out terraform.plan 2> terraform.error
+
+      - name: Terraform Show
+        id: show
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        run: |
+          cat terraform.error > terraform.show
+          terraform show -no-color terraform.plan 2>&1 >> terraform.show
+
+      - name: Terraform Validation Report
+        uses: actions/github-script@v6
+        id: update_pr
+        if: github.event_name == 'pull_request'
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require("fs");
+            const plan = fs.readFileSync("./terraform/terraform.show", {encoding: 'utf-8'});
+            const maxGitHubBodyCharacters = 65536;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            })
+
+            function chunkSubstr(str, size) {
+              const numChunks = Math.ceil(str.length / size)
+              const chunks = new Array(numChunks)
+              for (let i = 0, o = 0; i < numChunks; ++i, o += size) {
+                chunks[i] = str.substr(o, size)
+              }
+              return chunks
+            }
+
+            // Split the Terraform plan into chunks if it's too big and can't fit into the GitHub Action
+            var plans = chunkSubstr(plan, maxGitHubBodyCharacters);
+            for (let i = 0; i < plans.length; i++) {
+              const botComment = comments.find(comment => {
+                return comment.user.type === 'Bot' && comment.body.includes(`Part # ${i + 1} of ${plans.length}`)
+              })
+              const output = `### ${{ inputs.plan-title }}  Part # ${i + 1} of ${plans.length}
+              #### Terraform Format and Style 🖌\`${{ steps.fmt.outcome }}\`
+              #### Terraform Initialization ⚙️\`${{ steps.init.outcome }}\`
+              #### Terraform Plan 📖\`${{ steps.plan.outcome }}\`
+              <details><summary>Show Plan</summary>
+
+              \`\`\`tf
+              ${plans[i]}
+              \`\`\`
+
+              </details>
+
+              *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`, Working Directory: \`./terraform\`, Workflow: \`${{ github.workflow }}\`*`;
+
+              if (botComment) {
+                github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: botComment.id,
+                  body: output
+                })
+              } else {
+                github.rest.issues.createComment({
+                  issue_number: context.issue.number,
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  body: output
+                })
+              }
+            }
+
+      - name: Terraform Plan Status
+        if: steps.plan.outcome == 'failure'
+        run: exit 1
+
+      - name: Terraform Apply
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          terraform apply -auto-approve
